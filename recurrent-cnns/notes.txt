@@ -1,0 +1,17 @@
+LeNet/MNIST:
+
+CUDA_VISIBLE_DEVICES=1 th /home/greg/ws/digits/tools/torch/wrapper.lua main.lua --network=model --epoch=5 --networkDirectory=/home/greg/ws/digits/digits/jobs/20160711-173114-890a --save=/home/greg/ws/digits/digits/jobs/20160711-173114-890a --snapshotPrefix=snapshot --snapshotInterval=1.0 --learningRate=0.01 --policy=fixed --dbbackend=lmdb --mean=/home/greg/ws/digits/digits/jobs/20160711-173114-890a/mean.jpg --labels=/home/greg/ws/digits/digits/jobs/20160117-131355-ba71/labels.txt --train=/home/greg/ws/digits/digits/jobs/20160117-131355-ba71/train_db --validation=/home/greg/ws/digits/digits/jobs/20160117-131355-ba71/val_db --gamma=0.1 --stepvalues=33.0 --shuffle=yes --subtractMean=image --optimization=sgd --interval=1.0 --type=cuda
+
+
+Alexnet/VOC:
+
+CUDA_VISIBLE_DEVICES=1 th /home/greg/ws/digits/tools/torch/wrapper.lua main.lua --network=model --epoch=10 --networkDirectory=/home/greg/ws/digits/digits/jobs/20160716-165856-7261 --save=/home/greg/ws/digits/digits/jobs/20160716-165856-7261 --snapshotPrefix=snapshot --snapshotInterval=1.0 --learningRate=0.01 --policy=step --dbbackend=lmdb --mean=/home/greg/ws/digits/digits/jobs/20160716-165856-7261/mean.jpg --labels=/home/greg/ws/digits/digits/jobs/20160224-093644-193a/labels.txt --train=/home/greg/ws/digits/digits/jobs/20160224-093644-193a/train_db --validation=/home/greg/ws/digits/digits/jobs/20160224-093644-193a/val_db --gamma=0.1 --stepvalues=33.0 --shuffle=yes --subtractMean=image --optimization=sgd --interval=1.0 --type=cuda
+
+Alexnet/VOC-Balanced:
+CUDA_VISIBLE_DEVICES=1 th /home/greg/ws/digits/tools/torch/wrapper.lua main.lua --network=model --epoch=10 --networkDirectory=/home/greg/ws/digits/digits/jobs/20160716-165856-7261 --save=/home/greg/ws/digits/digits/jobs/20160716-165856-7261 --snapshotPrefix=snapshot --snapshotInterval=1.0 --learningRate=0.01 --policy=step --dbbackend=lmdb --mean=/home/greg/ws/digits/digits/jobs/20160716-165856-7261/mean.jpg --labels=/home/greg/ws/digits/digits/jobs/20160717-122911-f9be/labels.txt --train=/home/greg/ws/digits/digits/jobs/20160717-122911-f9be/train_db --validation=/home/greg/ws/digits/digits/jobs/20160717-122911-f9be/val_db --gamma=0.1 --stepvalues=33.0 --shuffle=yes --subtractMean=image --optimization=sgd --interval=1.0 --type=cuda
+
+
+Text classification:
+th /home/greg/ws/digits/tools/torch/wrapper.lua main.lua --network=model --epoch=1 --networkDirectory=/home/greg/ws/digits/digits/jobs/20160719-112154-8105 --save=/home/greg/ws/digits/digits/jobs/20160719-112154-8105 --snapshotPrefix=snapshot --snapshotInterval=1.0 --learningRate=0.01 --policy=exp --dbbackend=lmdb --labels=/home/greg/ws/digits/digits/jobs/20160413-214857-b725/labels.txt --train=/home/greg/ws/digits/digits/jobs/20160413-214857-b725/train_db --validation=/home/greg/ws/digits/digits/jobs/20160413-214857-b725/val_db --gamma=0.98 --shuffle=yes --subtractMean=none --optimization=sgd --interval=0.25 --type=cuda --weights=/home/greg/ws/digits/digits/jobs/20160719-104951-debc/snapshot_1_Model.t7
+
+
