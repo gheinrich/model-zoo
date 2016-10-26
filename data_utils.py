@@ -87,7 +87,6 @@ def vectorize_data(data, word_idx, sentence_size, memory_size):
     If a story length < memory_size, the story will be padded with empty memories.
     Empty memories are 1-D arrays of length sentence_size filled with 0's.
 
-    The answer array is returned as a one-hot encoding.
     """
     S = []
     Q = []
@@ -109,9 +108,7 @@ def vectorize_data(data, word_idx, sentence_size, memory_size):
         lq = max(0, sentence_size - len(query))
         q = [word_idx[w] for w in query] + [0] * lq
 
-        y = np.zeros(len(word_idx) + 1) # 0 is reserved for nil word
-        for a in answer:
-            y[word_idx[a]] = 1
+        y = word_idx[answer[0]]
 
         S.append(ss)
         Q.append(q)

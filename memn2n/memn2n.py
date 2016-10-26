@@ -9,6 +9,63 @@ import tensorflow as tf
 import numpy as np
 from six.moves import range
 
+def classification_loss(pred, y):
+    """
+    Definition of the loss for regular classification
+    """
+    ssoftmax = tf.nn.sparse_softmax_cross_entropy_with_logits(pred, y, name='cross_entropy_single')
+    return tf.reduce_mean(ssoftmax, name='cross_entropy_batch')
+
+def classification_accuracy(pred, y):
+    """
+    Default definition of accuracy. Something is considered accurate if and only
+    if a true label exactly matches the highest value in the prediction vector.
+    """
+    single_acc = tf.equal(y, tf.argmax(pred, 1))
+    return tf.reduce_mean(tf.cast(single_acc, tf.float32), name='accuracy')
+
+def dig_memn2n(x, embeddings, weights, encoding, hops):
+    """
+    Create model
+    """
+
+    with tf.variable_scope("memn2n"):
+        # x has shape [batch_size, story_size, sentence_size, 2]
+        # unpack along last dimension to extract stories and questions
+        x = tf.transpose(x, [0, 2, 3, 1])
+
+        stories, questions = tf.unpack(x, axis=3)
+
+        questions = tf.Print(questions, [questions], message="q: ", summarize=20, first_n=10)
+
+        # assume single sentence in question
+        questions = questions[:, 0, :]
+
+        q_emb = tf.nn.embedding_lookup(embeddings['B'], questions, name='q_emb')
+        u_0 = tf.reduce_sum(q_emb * encoding, 1)
+        u = [u_0]
+        for _ in xrange(hops):
+            m_emb = tf.nn.embedding_lookup(embeddings['A'], stories, name='m_emb')
+            m = tf.reduce_sum(m_emb * encoding, 2) + weights['TA']
+            # hack to get around no reduce_dot
+            u_temp = tf.transpose(tf.expand_dims(u[-1], -1), [0, 2, 1])
+            dotted = tf.reduce_sum(m * u_temp, 2)
+
+            # Calculate probabilities
+            probs = tf.nn.softmax(dotted)
+
+            probs_temp = tf.transpose(tf.expand_dims(probs, -1), [0, 2, 1])
+            c_temp = tf.transpose(m, [0, 2, 1])
+            o_k = tf.reduce_sum(c_temp * probs_temp, 2)
+
+            u_k = tf.matmul(u[-1], weights['H']) + o_k
+
+            u.append(u_k)
+
+        o = tf.matmul(u_k, weights['W'])
+    return o
+
+
 def position_encoding(sentence_size, embedding_size):
     """
     Position Encoding described in section 4.1 [1]
@@ -112,61 +169,75 @@ class MemN2N(object):
         self._build_vars()
         self._encoding = tf.constant(encoding(self._sentence_size, self._embedding_size), name="encoding")
 
-        # cross entropy
-        logits = self._inference(self._stories, self._queries) # (batch_size, vocab_size)
-        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits, tf.cast(self._answers, tf.float32), name="cross_entropy")
-        cross_entropy_sum = tf.reduce_sum(cross_entropy, name="cross_entropy_sum")
+        ###
+        dict_size = vocab_size
+        story_size = memory_size
+        with tf.variable_scope(self._name):
+
+            embeddings = {
+                'A': tf.get_variable('A', [dict_size, embedding_size], initializer=initializer),
+                'B': tf.get_variable('B', [dict_size, embedding_size], initializer=initializer),
+            }
+            weights = {
+                'TA': tf.get_variable('TA', [story_size, embedding_size], initializer=initializer),
+                'H': tf.get_variable('H', [embedding_size, embedding_size], initializer=initializer),
+                'W': tf.get_variable('W', [embedding_size, dict_size], initializer=initializer),
+            }
+            x = self._stories_queries
+            net_output = dig_memn2n(x, embeddings, weights, self._encoding, hops)
+
+            tf.histogram_summary("A_hist", embeddings['A'])
+            tf.histogram_summary("X_hist", x)
+
+        model = net_output
+        ###
+
+        def loss(y):
+            y = tf.to_int64(y[:, 0, 0, 0], name='y_int')
+            tf.histogram_summary("Y_hist", y)
+            loss = classification_loss(model, y)
+            return loss
 
         # loss op
-        loss_op = cross_entropy_sum
+        loss_op = loss(self._answers)
 
         # gradient pipeline
         grads_and_vars = self._opt.compute_gradients(loss_op)
-        grads_and_vars = [(tf.clip_by_norm(g, self._max_grad_norm), v) for g,v in grads_and_vars]
-        grads_and_vars = [(add_gradient_noise(g), v) for g,v in grads_and_vars]
+        #grads_and_vars = [(tf.clip_by_norm(g, self._max_grad_norm), v) for g,v in grads_and_vars]
+        #grads_and_vars = [(add_gradient_noise(g), v) for g,v in grads_and_vars]
         nil_grads_and_vars = []
         for g, v in grads_and_vars:
-            if v.name in self._nil_vars:
-                nil_grads_and_vars.append((zero_nil_slot(g), v))
-            else:
-                nil_grads_and_vars.append((g, v))
+            nil_grads_and_vars.append((g, v))
         train_op = self._opt.apply_gradients(nil_grads_and_vars, name="train_op")
 
-        # predict ops
-        predict_op = tf.argmax(logits, 1, name="predict_op")
-        predict_proba_op = tf.nn.softmax(logits, name="predict_proba_op")
-        predict_log_proba_op = tf.log(predict_proba_op, name="predict_log_proba_op")
+
+        def accuracy(y):
+            y = tf.to_int64(y[:, 0, 0, 0], name='y_accuracy')
+            acc = classification_accuracy(model, y)
+            return acc
+
+        accuracy_op = accuracy(self._answers)
 
         # assign ops
         self.loss_op = loss_op
-        self.predict_op = predict_op
-        self.predict_proba_op = predict_proba_op
-        self.predict_log_proba_op = predict_log_proba_op
+        self.accuracy_op = accuracy_op
         self.train_op = train_op
 
         init_op = tf.initialize_all_variables()
         self._sess = session
         self._sess.run(init_op)
 
+        self._merged_summaries = tf.merge_all_summaries()
+
 
     def _build_inputs(self):
-        self._stories = tf.placeholder(tf.int32, [None, self._memory_size, self._sentence_size], name="stories")
-        self._queries = tf.placeholder(tf.int32, [None, self._sentence_size], name="queries")
-        self._answers = tf.placeholder(tf.int32, [None, self._vocab_size], name="answers")
+        self._stories_queries = tf.placeholder(tf.int32, [None, 2, self._memory_size, self._sentence_size], name="stories")
+        self._answers = tf.placeholder(tf.int32, [None, 1, self._memory_size, self._sentence_size], name="answers")
 
     def _build_vars(self):
         with tf.variable_scope(self._name):
-            nil_word_slot = tf.zeros([1, self._embedding_size])
-            A = tf.concat(0, [ nil_word_slot, self._init([self._vocab_size-1, self._embedding_size]) ])
-            B = tf.concat(0, [ nil_word_slot, self._init([self._vocab_size-1, self._embedding_size]) ])
-            self.A = tf.Variable(A, name="A")
-            self.B = tf.Variable(B, name="B")
-
-            self.TA = tf.Variable(self._init([self._memory_size, self._embedding_size]), name='TA')
-
-            self.H = tf.Variable(self._init([self._embedding_size, self._embedding_size]), name="H")
-            self.W = tf.Variable(self._init([self._embedding_size, self._vocab_size]), name="W")
-        self._nil_vars = set([self.A.name, self.B.name])
+            pass
+        self._nil_vars = set([]) # set([self.A.name, self.B.name])
 
     def _inference(self, stories, queries):
         with tf.variable_scope(self._name):
@@ -207,11 +278,11 @@ class MemN2N(object):
         Returns:
             loss: floating-point number, the loss computed for the batch
         """
-        feed_dict = {self._stories: stories, self._queries: queries, self._answers: answers}
-        loss, _ = self._sess.run([self.loss_op, self.train_op], feed_dict=feed_dict)
-        return loss
+        feed_dict = {self._stories_queries: stories, self._answers: answers}
+        summaries, loss, _ = self._sess.run([self._merged_summaries, self.loss_op, self.train_op], feed_dict=feed_dict)
+        return summaries, loss
 
-    def predict(self, stories, queries):
+    def accuracy(self, stories_queries, answers):
         """Predicts answers as one-hot encoding.
 
         Args:
@@ -221,30 +292,7 @@ class MemN2N(object):
         Returns:
             answers: Tensor (None, vocab_size)
         """
-        feed_dict = {self._stories: stories, self._queries: queries}
-        return self._sess.run(self.predict_op, feed_dict=feed_dict)
+        feed_dict = {self._stories_queries: stories_queries, self._answers: answers}
+        return self._sess.run(self.accuracy_op, feed_dict=feed_dict)
 
-    def predict_proba(self, stories, queries):
-        """Predicts probabilities of answers.
 
-        Args:
-            stories: Tensor (None, memory_size, sentence_size)
-            queries: Tensor (None, sentence_size)
-
-        Returns:
-            answers: Tensor (None, vocab_size)
-        """
-        feed_dict = {self._stories: stories, self._queries: queries}
-        return self._sess.run(self.predict_proba_op, feed_dict=feed_dict)
-
-    def predict_log_proba(self, stories, queries):
-        """Predicts log probabilities of answers.
-
-        Args:
-            stories: Tensor (None, memory_size, sentence_size)
-            queries: Tensor (None, sentence_size)
-        Returns:
-            answers: Tensor (None, vocab_size)
-        """
-        feed_dict = {self._stories: stories, self._queries: queries}
-        return self._sess.run(self.predict_log_proba_op, feed_dict=feed_dict)
